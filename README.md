@@ -17,5 +17,5 @@ sudo pip install . --break-system-packages --no-build-isolation
 ```
 `--no-build-isolation` is here so you wont need to install another torch and other dependencies in the isolated environment just to build and install this package.
 
-## Paper
+## Paper (not mine or related)
 [TiDAR: Think in Diffusion, Talk in Autoregression](https://arxiv.org/pdf/2511.08923)
