@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tidar"
+version = "0.0.1"
+description = "TiDAR: Think in Diffusion, Talk in Autoregression (Unofficial)"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "torch",
+    "transformers",
+    "trl>=1.5.1",
+    "peft",
+    "accelerate",
+    "bitsandbytes",
+    "datasets",
+    "regex"
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+[project.optional-dependencies]
+qlora = [
+    "bitsandbytes"
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["tidar*"]
