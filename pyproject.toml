@@ -8,6 +8,10 @@ version = "0.0.1"
 description = "TiDAR: Think in Diffusion, Talk in Autoregression (Unofficial)"
 readme = "README.md"
 requires-python = ">=3.9"
+license = {text = 'AGPLv3'}
+authors = [
+    {name= "fish4terrisa-MSDSM", email = "fish4terrisa@fishinix.org"}
+]
 dependencies = [
     "torch",
     "transformers",
