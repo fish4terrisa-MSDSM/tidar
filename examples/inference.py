@@ -21,14 +21,14 @@ thought_output = generator.generate(
 )
 print(f"Final Stage 1 Output:\n{thought_output}")
 
-#regex_pattern = r"^[0-9A-Za-z \.\,\?\!]+$"
+regex_pattern = r"^[^vV]+$"
 speech_prompt = thought_output
 speech_output = generator.generate(
     prompt=speech_prompt,
     max_new_tokens=100,
     temperature=0.9,
     stop_tokens=[tokenizer.convert_tokens_to_ids("</speak>"), tokenizer.eos_token_id],
-#    regex_pattern=regex_pattern,
+    regex_pattern=regex_pattern,
     log_diffusion=True
 )
 print(f"Final Stage 2 Output:\n{speech_output}")
