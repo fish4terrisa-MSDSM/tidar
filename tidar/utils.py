@@ -1,6 +1,13 @@
 import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
-import re
+
+# Attempt to import lm-format-enforcer for high-performance Regex DFA parsing
+try:
+    from lmformatenforcer import RegexParser, TokenEnforcer
+    from lmformatenforcer.integrations.transformers import build_token_enforcer_tokenizer_data
+    HAS_LFE = True
+except ImportError:
+    HAS_LFE = False
 
 def get_chat_template(
     tokenizer,
@@ -125,12 +132,67 @@ class RegexLogitsProcessor:
     """Production ready Regex Logits Processor dynamically enforcing partial prefix constraints."""
     def __init__(self, regex_pattern, tokenizer, stop_tokens, prompt_len=0):
         import regex
-        self.pattern = regex.compile(regex_pattern)
         self.tokenizer = tokenizer
         self.stop_tokens = stop_tokens
         self.prompt_len = prompt_len
-        self.token_strings = {}
-        self.cache = {}
+
+        if HAS_LFE:
+            self.backend = "lfe"
+            if regex_pattern.startswith("^"):
+                regex_pattern = regex_pattern[1:]
+            if regex_pattern.endswith("$") and not regex_pattern.endswith("\$"):
+                regex_pattern = regex_pattern[:-1]
+            self.parser = RegexParser(regex_pattern)
+            self.tokenizer_data = build_token_enforcer_tokenizer_data(tokenizer)
+            self.enforcer = TokenEnforcer(self.tokenizer_data, self.parser)
+        else:
+            self.backend = "original"
+            import regex
+            self.pattern = regex.compile(regex_pattern)
+            self.token_strings = {}
+            self.cache = {}
+
+    def __call__(self, generated_ids, ar_logits, current_draft):
+        """Routes execution to either lm-format-enforcer or the original string-matching fallback."""
+        if self.backend == "lfe":
+            return self._call_lfe(generated_ids, ar_logits, current_draft)
+        else:
+            return self._call_original(generated_ids, ar_logits, current_draft)
+
+    def _call_lfe(self, generated_ids, ar_logits, current_draft):
+        """High-performance DFA evaluation using lm-format-enforcer."""
+        vocab_size = ar_logits.shape[-1]
+
+        for b in range(ar_logits.shape[0]):
+            # Get the list of generated token IDs (excluding prompt)
+            base_tokens = generated_ids[b][self.prompt_len:].tolist()
+            active_tokens = list(base_tokens)
+
+            for i in range(ar_logits.shape[1]):
+                if i > 0 and current_draft is not None:
+                    active_tokens.append(current_draft[b, i-1].item())
+
+                # O(1) State Machine evaluation returning valid integer IDs
+                allowed_tokens = self.enforcer.get_allowed_tokens(active_tokens).allowed_tokens
+
+                # Convert TokenList object to a standard python list of integers for PyTorch indexing
+                valid_mask = torch.zeros(vocab_size, dtype=torch.bool, device=ar_logits.device)
+                valid_mask[allowed_tokens] = True
+
+                # If regex is fully matched, LFE allows EOS. Map this to all custom stop_tokens.
+                eos_id = self.tokenizer.eos_token_id
+                if (eos_id is not None and valid_mask[eos_id]) or not valid_mask.any():
+                    for st in self.stop_tokens:
+                        if st < vocab_size:
+                            valid_mask[st] = True
+
+                # Fallback for garbage drafts to prevent NaN crash
+                if not valid_mask.any():
+                    valid_mask[:] = True
+
+                ar_logits[b, i, :] = ar_logits[b, i, :].masked_fill(~valid_mask, -float('inf'))
+
+        return ar_logits
 
     def get_token_string(self, i):
         if i not in self.token_strings:
@@ -172,7 +234,7 @@ class RegexLogitsProcessor:
         logits = logits.masked_fill(~valid_mask, -float('inf'))
         return logits
 
-    def __call__(self, generated_ids, ar_logits, current_draft):
+    def _call_original(self, generated_ids, ar_logits, current_draft):
         # Iterate over batch size cleanly so it doesn't fail natively for B > 1 AR cases
         for b in range(ar_logits.shape[0]):
             # Slice out the prompt so the regex strictly applies to the new completion structure

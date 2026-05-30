@@ -30,6 +30,9 @@ classifiers = [
 qlora = [
     "bitsandbytes"
 ]
+faster_regex = [
+    "lm-format-enforcer"
+]
 
 [tool.setuptools.packages.find]
 where = ["."]
