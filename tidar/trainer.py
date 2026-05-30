@@ -90,14 +90,14 @@ class TiDARDPOTrainer(DPOTrainer):
     def get_batch_loss_metrics(self, model, batch, train_eval="train"):
         """Overrides DPO loss calculation to include TiDAR logic."""
         # Unpack standard DPO batch
-        policy_chosen_logits, policy_rejected_logits, policy_chosen_logps, policy_rejected_logps = self.concatenated_forward(model, batch)
+        policy_chosen_logits, policy_rejected_logits, policy_chosen_logps, policy_rejected_logps, policy_aux_loss = self.concatenated_forward(model, batch)
         
         with torch.no_grad():
             if self.ref_model is None:
                 with self.null_ref_context():
-                    _, _, ref_chosen_logps, ref_rejected_logps = self.concatenated_forward(model, batch)
+                    _, _, ref_chosen_logps, ref_rejected_logps, _ = self.concatenated_forward(model, batch)
             else:
-                _, _, ref_chosen_logps, ref_rejected_logps = self.concatenated_forward(self.ref_model, batch)
+                _, _, ref_chosen_logps, ref_rejected_logps, _ = self.concatenated_forward(self.ref_model, batch)
 
         # Standard DPO Loss calculation
         pi_logratios = policy_chosen_logps - policy_rejected_logps
@@ -105,6 +105,12 @@ class TiDARDPOTrainer(DPOTrainer):
         logits = pi_logratios - ref_logratios
         
         loss = -F.logsigmoid(self.beta * logits).mean()
+
+        # Add MoE auxiliary loss if present
+        if policy_aux_loss is not None:
+            # Scale if explicitly set, else rely on model's internal scaling
+            coef = getattr(self.args, "router_aux_loss_coef", 1.0)
+            loss += coef * policy_aux_loss
         
         reward_accuracies = (logits > 0).float()
 
@@ -149,8 +155,9 @@ class TiDARDPOTrainer(DPOTrainer):
         # Do NOT pass labels=labels here. DPO does not use standard Cross-Entropy.
         # Passing labels triggers TiDARModel's standard cross-entropy calculation which massively blows up VRAM.
         # We only need the raw logits to calculate our DPO logps below!
-        outputs = model(input_ids, attention_mask=attention_mask, output_full_logits=True) # TiDARModel handles the internal concatenation
+        outputs = model(input_ids, attention_mask=attention_mask, output_full_logits=True, output_router_logits=True) # TiDARModel handles the internal concatenation
         logits = outputs.logits
+        aux_loss = getattr(outputs, "aux_loss", None)
         B, S = input_ids.shape
 
         # AR Causal Part: Pass unshifted inputs, helper handles shifting
@@ -175,4 +182,4 @@ class TiDARDPOTrainer(DPOTrainer):
         chosen_logps = total_logps[:len_chosen]
         rejected_logps = total_logps[len_chosen:]
         
-        return logits[:len_chosen], logits[len_chosen:], chosen_logps, rejected_logps
+        return logits[:len_chosen], logits[len_chosen:], chosen_logps, rejected_logps, aux_loss

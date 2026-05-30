@@ -158,6 +158,13 @@ class TiDARGenerator:
         
         # Predict the very first token
         first_ar_logits = outputs.logits[:, -1, :]
+
+        # Ensure Regex validation is applied to the very first prefill token
+        if logits_processor:
+            first_ar_logits_seq = first_ar_logits.unsqueeze(1) # shape [B, 1, V]
+            first_ar_logits_seq = logits_processor(generated_ids, first_ar_logits_seq, current_draft=None)
+            first_ar_logits = first_ar_logits_seq.squeeze(1)
+
         if temperature > 0:
             probs = F.softmax(first_ar_logits / temperature, dim=-1)
             last_token = torch.multinomial(probs, num_samples=1)

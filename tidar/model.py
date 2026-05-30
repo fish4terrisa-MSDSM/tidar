@@ -18,11 +18,11 @@ class TiDARModel(nn.Module):
     @property
     def _hf_peft_config_loaded(self) -> bool:
         """Dynamically detect if the underlying base model is configured with PEFT adapters."""
-        # 1. Check if the flag is explicitly set on the inner model
+        # Check if the flag is explicitly set on the inner model
         if getattr(self.base_model, "_hf_peft_config_loaded", False):
             return True
 
-        # 2. Check for typical PEFT attributes to handle cases where the flag was not propagated
+        # Check for typical PEFT attributes to handle cases where the flag was not propagated
         if hasattr(self.base_model, "peft_config") or hasattr(self.base_model, "active_adapters"):
             return True
 
@@ -64,6 +64,7 @@ class TiDARModel(nn.Module):
             position_ids=full_position_ids,
             output_hidden_states=False,
             use_cache=False, # Disabled during training
+            output_router_logits=True, # Ensure MoE models return aux loss
             **kwargs
         )
         logits = outputs.logits
@@ -83,6 +84,11 @@ class TiDARModel(nn.Module):
             loss_diff = loss_fct(diff_logits.view(-1, diff_logits.size(-1)), diff_labels.view(-1))
 
             loss = (1.0 / (1.0 + self.alpha)) * (self.alpha * loss_ar + loss_diff)
+
+            # Capture MoE auxiliary loss (load balancing / z-loss) if it exists
+            aux_loss = getattr(outputs, "aux_loss", None)
+            if aux_loss is not None:
+                loss += aux_loss
 
         ret_logits = logits[:, :S, :].contiguous() if not output_full_logits else logits
 

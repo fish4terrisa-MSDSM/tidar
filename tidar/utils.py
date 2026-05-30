@@ -166,18 +166,22 @@ class RegexLogitsProcessor:
         if not valid_mask.any():
             valid_mask[:] = True
 
-        logits[~valid_mask] = -float('inf')
+        #logits[~valid_mask] = -float('inf')
+        # Safer functional assignment out of place to prevent PyTorch view warnings
+        logits = logits.masked_fill(~valid_mask, -float('inf'))
         return logits
 
     def __call__(self, generated_ids, ar_logits, current_draft):
-        base_prefix = self.tokenizer.decode(generated_ids[0], skip_special_tokens=False)
-        parts = base_prefix.split("<speak>")
-        active_prefix = parts[-1] if len(parts) > 1 else base_prefix
+        # Iterate over batch size cleanly so it doesn't fail natively for B > 1 AR cases
+        for b in range(ar_logits.shape[0]):
+            base_prefix = self.tokenizer.decode(generated_ids[b], skip_special_tokens=False)
+            parts = base_prefix.split("<speak>")
+            active_prefix = parts[-1] if len(parts) > 1 else base_prefix
 
-        for i in range(ar_logits.shape[1]):
-            if i > 0 and current_draft is not None:
-                draft_token_str = self.tokenizer.decode(current_draft[0, i-1:i], skip_special_tokens=False)
-                active_prefix += draft_token_str
-            ar_logits[0, i, :] = self.apply_mask(active_prefix, ar_logits[0, i, :])
+            for i in range(ar_logits.shape[1]):
+                if i > 0 and current_draft is not None:
+                    draft_token_str = self.tokenizer.decode(current_draft[b, i-1:i], skip_special_tokens=False)
+                    active_prefix += draft_token_str
+                ar_logits[b, i, :] = self.apply_mask(active_prefix, ar_logits[b, i, :])
 
         return ar_logits
