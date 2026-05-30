@@ -50,7 +50,7 @@ class TiDARGenerator:
         logits_processor = None
         if regex_pattern:
             from .utils import RegexLogitsProcessor
-            logits_processor = RegexLogitsProcessor(regex_pattern, self.tokenizer, stop_tokens)
+            logits_processor = RegexLogitsProcessor(regex_pattern, self.tokenizer, stop_tokens, prompt_len=seq_len)
 
         last_token = input_ids
         for _ in range(max_new_tokens):
@@ -75,7 +75,7 @@ class TiDARGenerator:
 
     @torch.no_grad()
     def _generate_diffusion(self, input_ids, max_new_tokens, temperature, stop_tokens, regex_pattern, log_diffusion):
-        """Pure Block Diffusion Generation (No Verification)."""
+        """Pure Block Diffusion Generation"""
         B, seq_len = input_ids.shape
         generated_ids = input_ids.clone()
         k = self.draft_len
@@ -148,7 +148,7 @@ class TiDARGenerator:
         logits_processor = None
         if regex_pattern:
             from .utils import RegexLogitsProcessor
-            logits_processor = RegexLogitsProcessor(regex_pattern, self.tokenizer, stop_tokens)
+            logits_processor = RegexLogitsProcessor(regex_pattern, self.tokenizer, stop_tokens, prompt_len=seq_len)
 
         if stop_tokens is None:
             stop_tokens = [self.tokenizer.eos_token_id]

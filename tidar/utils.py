@@ -123,11 +123,12 @@ def get_bnb_config(mode="4bit"):
 
 class RegexLogitsProcessor:
     """Production ready Regex Logits Processor dynamically enforcing partial prefix constraints."""
-    def __init__(self, regex_pattern, tokenizer, stop_tokens):
+    def __init__(self, regex_pattern, tokenizer, stop_tokens, prompt_len=0):
         import regex
         self.pattern = regex.compile(regex_pattern)
         self.tokenizer = tokenizer
         self.stop_tokens = stop_tokens
+        self.prompt_len = prompt_len
         self.token_strings = {}
         self.cache = {}
 
@@ -174,13 +175,15 @@ class RegexLogitsProcessor:
     def __call__(self, generated_ids, ar_logits, current_draft):
         # Iterate over batch size cleanly so it doesn't fail natively for B > 1 AR cases
         for b in range(ar_logits.shape[0]):
-            base_prefix = self.tokenizer.decode(generated_ids[b], skip_special_tokens=False)
-            parts = base_prefix.split("<speak>")
-            active_prefix = parts[-1] if len(parts) > 1 else base_prefix
+            # Slice out the prompt so the regex strictly applies to the new completion structure
+            base_prefix = self.tokenizer.decode(generated_ids[b][self.prompt_len:], skip_special_tokens=False)
+            active_prefix = base_prefix
 
             for i in range(ar_logits.shape[1]):
                 if i > 0 and current_draft is not None:
-                    draft_token_str = self.tokenizer.decode(current_draft[b, i-1:i], skip_special_tokens=False)
+                    # Extract token as raw integer to prevent C-tokenizer warnings on 1D tensor slices
+                    draft_token_id = current_draft[b, i-1].item()
+                    draft_token_str = self.tokenizer.decode(draft_token_id, skip_special_tokens=False)
                     active_prefix += draft_token_str
                 ar_logits[b, i, :] = self.apply_mask(active_prefix, ar_logits[b, i, :])
 
